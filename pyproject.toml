@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vol-derivatives-pricer"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "scipy",
+  "arbfree-vol-surface @ git+https://github.com/ishhaaab/Arbitrage-Free-Vol-Surface-Engine.git",
+]
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pyright",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+reportMissingTypeStubs = false
