@@ -137,15 +137,16 @@ def fair_variance_strike(
     # Remove any duplicate F (near-exact duplicates from floating point)
     strikes = np.unique(strikes)
 
-    # Evaluate option prices on the grid
-    n = len(strikes)
-    prices = np.empty(n, dtype=float)
-
-    for i, K in enumerate(strikes):
-        if K <= F:
-            prices[i] = bridge.get_option_price(K, T, "P")
-        else:
-            prices[i] = bridge.get_option_price(K, T, "C")
+    # Evaluate option prices via vectorised calls (OTM puts on K <= F,
+    # OTM calls on K > F).  The IV lookup per strike still iterates but
+    # the BS pricing is fully vectorised.
+    mask_put = strikes <= F
+    mask_call = strikes > F
+    prices = np.empty_like(strikes)
+    if np.any(mask_put):
+        prices[mask_put] = bridge.get_option_prices(strikes[mask_put], T, "P")
+    if np.any(mask_call):
+        prices[mask_call] = bridge.get_option_prices(strikes[mask_call], T, "C")
 
     # Integrand: g(K) = price / K²
     integrand = prices / (strikes * strikes)
@@ -161,6 +162,6 @@ def fair_variance_strike(
         strike_var=k_var_sq,
         forward=F,
         expiry=T,
-        n_strikes=n,
+        n_strikes=len(strikes),
         pi_integral=pi_integral,
     )

@@ -4,11 +4,53 @@ Single integration point wrapping a FittedSurface so that downstream
 pricing modules never touch arbfree_vol directly.
 """
 
+import math
 from dataclasses import dataclass
-from math import exp
+
+import numpy as np
+from scipy.special import erfc  # vectorised norm_cdf via erfc; upstream uses scalar math.erf
 
 from arbfree_vol.pricing.black_scholes import price_floats
 from arbfree_vol.surface.interpolate import FittedSurface, iv_at
+
+
+# ---------------------------------------------------------------------------
+# Vectorised Black-Scholes helpers
+# ---------------------------------------------------------------------------
+# The upstream price_floats uses scalar math.erf.  We provide a vectorised
+# equivalent via scipy.special.erfc so that SurfaceBridge.get_option_prices
+# can price an array of strikes in a single numpy call.
+_INV_SQRT2 = 1.0 / math.sqrt(2.0)
+
+
+def _norm_cdf_vec(x: np.ndarray) -> np.ndarray:
+    """Vectorised standard normal CDF via erfc."""
+    return 0.5 * erfc(-x * _INV_SQRT2)
+
+
+def _bs_prices_vec(
+    S: float,
+    K: np.ndarray,
+    T: float,
+    r: float,
+    q: float,
+    sigma: np.ndarray,
+    is_call: bool,
+) -> np.ndarray:
+    """Vectorised Black-Scholes price for an array of (K, sigma) pairs.
+
+    Mirrors the upstream ``price_floats`` signature but accepts numpy arrays
+    for *K* and *sigma*.  The CDF is evaluated via ``_norm_cdf_vec`` which
+    uses ``scipy.special.erfc`` (vectorised) rather than ``math.erf`` (scalar).
+    """
+    sqrt_T = math.sqrt(T)
+    d1 = (np.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * sqrt_T)
+    d2 = d1 - sigma * sqrt_T
+    df_r = math.exp(-r * T)
+    df_q = math.exp(-q * T)
+    if is_call:
+        return S * df_q * _norm_cdf_vec(d1) - K * df_r * _norm_cdf_vec(d2)
+    return K * df_r * _norm_cdf_vec(-d2) - S * df_q * _norm_cdf_vec(-d1)
 
 
 # 
@@ -55,7 +97,7 @@ class SurfaceBridge:
 
     def forward(self, T: float) -> float:
         """Forward price at expiry *T* = S · exp((r - q) · T)."""
-        return self.spot * exp((self.risk_free - self.div_yield) * T)
+        return self.spot * math.exp((self.risk_free - self.div_yield) * T)
 
     #  surface queries 
 
@@ -93,4 +135,39 @@ class SurfaceBridge:
             q=self.div_yield,
             sigma=sigma,
             is_call=is_call,
+        )
+
+    def get_option_prices(
+        self, strikes: np.ndarray, expiry: float, cp: str
+    ) -> np.ndarray:
+        """Black-Scholes prices for an array of strikes at one expiry.
+
+        Vectorised via ``scipy.special.erfc``; the per-element IV lookup
+        still iterates (arbfree_vol's ``iv_at`` is scalar) but the BS
+        pricing itself is fully vectorised.  *cp* is case-insensitive
+        like :meth:`get_option_price`.
+
+        Parameters
+        ----------
+        strikes:
+            1-D array of absolute strike prices.
+        expiry:
+            Time to expiry in years.
+        cp:
+            ``"C"`` / ``"CALL"`` / ``"c"`` for calls,
+            ``"P"`` / ``"PUT"`` / ``"p"`` for puts (case-insensitive).
+
+        Returns
+        -------
+        np.ndarray
+            Option premiums, one per strike.
+        """
+        u = cp.upper()
+        is_call = u.startswith("C")
+        if not is_call and not u.startswith("P"):
+            raise ValueError(f"cp must indicate call or put; got {cp!r}")
+        sigmas = np.array([self.get_iv(float(k), expiry) for k in strikes])
+        return _bs_prices_vec(
+            S=self.spot, K=strikes, T=expiry, r=self.risk_free,
+            q=self.div_yield, sigma=sigmas, is_call=is_call,
         )

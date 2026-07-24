@@ -1,7 +1,9 @@
 """Tests for the variance swap fair-strike calculation."""
 
 import math
+import time
 
+import numpy as np
 import pytest
 from pytest import approx
 
@@ -166,3 +168,47 @@ class TestGridConvergence:
         assert spread < 0.001 * values[-1], (
             f"Max-min spread {spread:.2e} exceeds 0.1% of final value {values[-1]:.6f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Vectorised option-pricing tests
+# ---------------------------------------------------------------------------
+class TestVectorisedOptionPrices:
+    """Tests for SurfaceBridge.get_option_prices and the fair_variance_strike refactor."""
+
+    def test_vectorised_matches_loop(self) -> None:
+        """get_option_prices matches per-element get_option_price."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        strikes = np.linspace(50.0, 200.0, 50)
+        for cp in ("C", "P"):
+            vec = bridge.get_option_prices(strikes, 1.0, cp)
+            loop = np.array([bridge.get_option_price(float(k), 1.0, cp) for k in strikes])
+            assert np.allclose(vec, loop, atol=1e-10), (
+                f"Vectorised vs loop mismatch for cp={cp}"
+            )
+
+    def test_vectorised_invalid_cp_raises(self) -> None:
+        """Invalid cp raises ValueError on get_option_prices."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        strikes = np.array([90.0, 100.0, 110.0])
+        with pytest.raises(ValueError):
+            bridge.get_option_prices(strikes, 1.0, "X")
+
+    def test_fair_variance_strike_unchanged_after_vectorise(self) -> None:
+        """The vectorised fair_variance_strike still gives sigma² ≈ 0.04."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        result = fair_variance_strike(bridge, T=1.0, n_points=4000)
+        assert result.strike_var == approx(0.04, rel=1e-3)
+
+    def test_perf_print(self) -> None:
+        """Print wall times for fair_variance_strike at various n_points (info only)."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        for n in (4000, 16000):
+            t0 = time.perf_counter()
+            _ = fair_variance_strike(bridge, T=1.0, n_points=n)
+            elapsed = time.perf_counter() - t0
+            print(f"  fair_variance_strike(n_points={n:>6}): {elapsed:.3f}s")
