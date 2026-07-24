@@ -57,6 +57,23 @@ being added (see below).
 - [x] Range accrual note: Monte Carlo path simulation under surface-implied vol, coupon accrues per day spot is in-range, discounted to PV
 - [ ] Shark fin note (stretch goal): decompose into knock-out barrier + digital, price both legs analytically and cross-check against Monte Carlo
 
+## Examples
+
+Two end-to-end demos on live SPY data (require network — they fetch via
+`arbfree_vol`'s yfinance ingestion and calibrate an SVI surface before
+pricing):
+
+```
+python examples/spy_variance_swap.py     # prints K_var^2, K_vol across expiries; saves PNG
+python examples/spy_range_accrual.py     # prices a 1-year note; prints PV with 95% CI; saves PNG
+```
+
+The demos use `load_calibrated_surface("SPY", max_expiries=24)` — a
+one-line wrapper over the upstream fetch -> repair -> FittedSurface
+pipeline — so 1-year pricing lands on-surface (SPY monthlies extend ~2y).
+
+![SPY variance swap fair strike](examples/spy_variance_swap.png)
+
 ## Quick Start
 
 ```bash
@@ -65,12 +82,19 @@ pytest tests/ -q
 python -c "from voldrv import SurfaceBridge, fair_variance_strike; print('OK')"
 ```
 
+3. Price off live SPY data: see [Examples](#examples)
+
 ## Project Structure
 
 ```
 vol-derivatives-pricer/
   pyproject.toml
   README.md
+  examples/
+    spy_variance_swap.py     # live SPY variance + vol swap fair strikes
+    spy_range_accrual.py     # live SPY range-accrual MC pricer
+    spy_variance_swap.png    # generated output plot
+    spy_range_accrual.png    # generated output plot
   src/
     voldrv/
       __init__.py               # package-level re-exports
