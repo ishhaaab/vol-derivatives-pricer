@@ -74,6 +74,16 @@ pipeline — so 1-year pricing lands on-surface (SPY monthlies extend ~2y).
 
 ![SPY variance swap fair strike](examples/spy_variance_swap.png)
 
+## Continuous Integration
+
+GitHub Actions runs `pytest tests/ -v` and `pyright src/` on every push
+and pull request to `main`, across Python 3.11 and 3.12 on Ubuntu
+and Windows (4 jobs).  The `examples/` directory is intentionally
+not exercised in CI -- those scripts need network access (yfinance
+fetch) and are run on demand.
+
+See `.github/workflows/ci.yml` for the full matrix definition.
+
 ## Quick Start
 
 ```bash

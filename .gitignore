@@ -1,6 +1,7 @@
 __pycache__/
 *.egg-info/
 .*
+!.github/
 /plots
 AGENTS.md
 !examples/*.png
