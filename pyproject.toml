@@ -9,6 +9,8 @@ requires-python = ">=3.11"
 dependencies = [
   "numpy",
   "scipy",
+  "matplotlib",
+  "yfinance",
   "arbfree-vol-surface @ git+https://github.com/ishhaaab/Arbitrage-Free-Vol-Surface-Engine.git",
 ]
 
