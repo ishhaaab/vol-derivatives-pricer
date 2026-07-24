@@ -29,22 +29,41 @@ dependencies = [
 
 ## Current Scope
 
-Planning stage — no pricing modules implemented yet. Build order below.
+`v0.1` is live and testable. Four pricing modules are implemented against
+a calibrated SVI surface:
 
-## Planned Features
+- **Variance swap** — fair strike via log-contract static replication
+  (Demeterfi et al.)
+- **Vol swap** — Brockhaus-Long convexity-adjusted fair strike
+- **Dupire local vol** — grid evaluation from the SVI surface
+- **Range accrual** — Monte Carlo simulation under surface-implied local vol
+
+27 tests pass on a flat synthetic SVI surface (`b=0, rho=0`) that collapses
+each exotic to its Black-Scholes closed form.  Skewed-surface tests are
+being added (see below).
+
+## Features
 
 ### Surface Integration
-- [ ] `surface_bridge.py`: load a calibrated surface from `arbfree_vol`, expose `get_iv()` / `get_option_price()`
+- [x] `surface_bridge.py`: load a calibrated surface from `arbfree_vol`, expose `get_iv()` / `get_option_price()`
 
 ### Variance & Vol Swaps
-- [ ] Fair variance strike via log-contract static replication (Demeterfi et al.) — integrate `1/K²`-weighted OTM option prices across strikes pulled from the surface
-- [ ] Vol swap fair strike via convexity adjustment off the variance swap (Brockhaus-Long approximation)
-- [ ] Validation: replicate published variance swap examples to check the replication math independently of the surface
+- [x] Fair variance strike via log-contract static replication (Demeterfi et al.) — integrate `1/K²`-weighted OTM option prices across strikes pulled from the surface
+- [x] Vol swap fair strike via convexity adjustment off the variance swap (Brockhaus-Long approximation)
+- [x] Surface-driven vol-of-vol estimator (`nu_from_surface`) — quadratic fit in log-moneyness space
 
 ### Structured Products
-- [ ] Local vol construction from the SVI surface (Dupire), or direct strike/time IV interpolation as a simpler first pass
-- [ ] Range accrual note: Monte Carlo path simulation under surface-implied vol, coupon accrues per day spot is in-range, discounted to PV
+- [x] Local vol construction from the SVI surface (Dupire), or direct strike/time IV interpolation as a simpler first pass
+- [x] Range accrual note: Monte Carlo path simulation under surface-implied vol, coupon accrues per day spot is in-range, discounted to PV
 - [ ] Shark fin note (stretch goal): decompose into knock-out barrier + digital, price both legs analytically and cross-check against Monte Carlo
+
+## Quick Start
+
+```bash
+pip install -e .
+pytest tests/ -q
+python -c "from voldrv import SurfaceBridge, fair_variance_strike; print('OK')"
+```
 
 ## Project Structure
 
@@ -54,28 +73,34 @@ vol-derivatives-pricer/
   README.md
   src/
     voldrv/
-      surface_bridge.py       # wraps arbfree_vol, exposes iv(K,T) and option prices
+      __init__.py               # package-level re-exports
+      surface_bridge.py         # wraps arbfree_vol, exposes iv(K,T) and option prices
       swaps/
-        variance_swap.py      # static replication -> fair variance strike
-        vol_swap.py           # convexity-adjusted fair vol strike
+        __init__.py             # subpackage re-exports
+        variance_swap.py        # static replication -> fair variance strike
+        vol_swap.py             # convexity-adjusted fair vol strike + nu estimator
       structured/
-        local_vol.py          # Dupire local vol from the SVI surface
-        range_accrual.py      # MC pricing of range accrual notes
-        shark_fin.py          # barrier + digital decomposition
+        __init__.py             # subpackage re-exports
+        local_vol.py            # Dupire local vol from the SVI surface
+        range_accrual.py        # MC pricing of range accrual notes
+        shark_fin.py            # barrier + digital decomposition (stub — planned)
   tests/
+    test_surface_bridge.py
     test_variance_swap.py
     test_vol_swap.py
+    test_local_vol.py
     test_range_accrual.py
+    test_skewed_surface.py
 ```
 
 ## Build Order
 
-1. `surface_bridge.py` — integration point with the surface engine
-2. Variance swap replication — correctness baseline, checkable against published examples
-3. Vol swap convexity adjustment
-4. Local vol construction
-5. Range accrual Monte Carlo pricer
-6. Shark fin note (stretch)
+1. [x] `surface_bridge.py` — integration point with the surface engine
+2. [x] Variance swap replication — correctness baseline, checkable against published examples
+3. [x] Vol swap convexity adjustment + `nu_from_surface` estimator
+4. [x] Local vol construction
+5. [x] Range accrual Monte Carlo pricer
+6. [ ] Shark fin note (stretch)
 
 ## Tech Stack
 
