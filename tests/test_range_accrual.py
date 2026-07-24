@@ -309,3 +309,65 @@ class TestAntithetic:
         )
         assert hasattr(result, "pv_std")
         assert isinstance(result.pv_std, float)
+
+
+# ---------------------------------------------------------------------------
+# Pre-computed 2D local-vol grid tests
+# ---------------------------------------------------------------------------
+class TestPrecomputedLVGrid:
+    """Tests for the 2D pre-compute + interpolate local-vol refactor."""
+
+    def test_2d_cache_preserves_wide_range_pv(self) -> None:
+        """PV unchanged on wide-range full-accrual case after refactor."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        result = price_range_accrual(
+            bridge,
+            T=1.0,
+            lower=0.0,
+            upper=1e9,
+            coupon_rate=0.05,
+            n_paths=5000,
+            n_steps_per_year=63,
+            rng_seed=42,
+        )
+        expected_pv = 0.05 * math.exp(-0.05)
+        assert result.pv == approx(expected_pv, rel=0.02), (
+            f"PV={result.pv:.6f}, expected={expected_pv:.6f}"
+        )
+
+    def test_perf_print_2d_cache(self) -> None:
+        """Print wall time for MC at n_paths=10000, 252 steps (info only)."""
+        import time
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        t0 = time.perf_counter()
+        result = price_range_accrual(
+            bridge,
+            T=1.0,
+            lower=95.0,
+            upper=105.0,
+            coupon_rate=0.05,
+            n_paths=10000,
+            n_steps_per_year=252,
+            rng_seed=42,
+        )
+        elapsed = time.perf_counter() - t0
+        print(f"  n_paths=10000 252-step MC: {elapsed:.3f}s  (pv={result.pv:.6f})")
+
+    def test_pv_std_still_returned(self) -> None:
+        """pv_std is a non-negative float after refactor."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        result = price_range_accrual(
+            bridge,
+            T=1.0,
+            lower=0.0,
+            upper=1e9,
+            coupon_rate=0.05,
+            n_paths=1000,
+            n_steps_per_year=252,
+            rng_seed=42,
+        )
+        assert isinstance(result.pv_std, float)
+        assert result.pv_std >= 0.0

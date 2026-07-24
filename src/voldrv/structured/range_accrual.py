@@ -8,10 +8,11 @@ SDE: dS = (r q) S dt + σ_loc(S, t) S dW   (Euler-Maruyama)
 
 Performance note
 ----------------
-``local_vol_at`` is called on a pre-computed strike grid at each time
-step (~200 grid points), then the per-path local vols are obtained via
-linear interpolation.  This avoids a full O(paths × steps) evaluation
-while maintaining accuracy.
+The local-vol surface is pre-computed ONCE on a 2D (K, T) grid of
+``_N_GRID`` strikes × ``n_steps`` time slices at the start of the
+simulation, then per-step local vols are obtained via ``np.interp``.
+This eliminates O(steps × _N_GRID) ``local_vol_at`` calls that were
+previously made inside the loop.
 """
 
 import math
@@ -85,12 +86,18 @@ def _safe_local_vol(bridge: SurfaceBridge, S: np.ndarray, t: float,
     """Evaluate local vol per path using a pre-computed grid.
 
     Steps
-   ----
+    ----
     1. Clamp each path's spot to ``[S_min_safe, S_max_safe]``.
     2. Build a log-spaced grid of ``_N_GRID`` strikes covering the safe range.
     3. Evaluate ``local_vol_at`` at each grid point.
     4. Linearly interpolate each path's local vol from the grid.
     5. If the grid evaluation fails entirely, fall back to ATM IV.
+
+    Note
+    ----
+    Kept for compatibility; ``price_range_accrual`` now uses
+    ``_precompute_lv_grid`` for performance (pre-computes the vol grid
+    once for all time steps rather than per-step).
     """
     # Clamp t to the surface's minimum expiry so we don't
     # request a time slice before the earliest fitted slice.
@@ -123,6 +130,55 @@ def _safe_local_vol(bridge: SurfaceBridge, S: np.ndarray, t: float,
     # Clamp path strikes then interpolate
     s_clamped = np.clip(S, S_min_safe, S_max_safe)
     return np.interp(s_clamped, grid_strikes, grid_vols)
+
+
+def _precompute_lv_grid(
+    bridge: SurfaceBridge,
+    grid_strikes_K: np.ndarray,
+    times: np.ndarray,
+    S0: float,
+) -> np.ndarray:
+    """Pre-compute local volatility on a 2D (time, strike) grid.
+
+    Each element ``lv_grid[k, j]`` = local vol at ``(grid_strikes_K[j], times[k])``
+    with the same fallback logic as ``_safe_local_vol`` (clamp time to
+    ``min_expiry``, clamp strike to ``[S0/10, S0*10]``, ATM-IV fallback on
+    exception, NaN fill).
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(len(times), len(grid_strikes_K))``.
+    """
+    n_times = len(times)
+    n_strikes = len(grid_strikes_K)
+    lv_grid = np.empty((n_times, n_strikes), dtype=float)
+
+    S_min_safe = max(S0 * 0.1, 1e-4)
+    S_max_safe = S0 * 10.0
+
+    for k_idx, t in enumerate(times):
+        t_clamped = max(t, bridge.min_expiry)
+        # Evaluate local vol at each grid point for this time slice
+        row = np.empty(n_strikes, dtype=float)
+        for j, K in enumerate(grid_strikes_K):
+            if K < S_min_safe or K > S_max_safe:
+                row[j] = _atm_iv_fallback(bridge, t_clamped)
+            else:
+                try:
+                    row[j] = local_vol_at(bridge, float(K), t_clamped)
+                except Exception:
+                    row[j] = _atm_iv_fallback(bridge, t_clamped)
+
+        # NaN fill
+        nan_mask = np.isnan(row)
+        if np.any(nan_mask):
+            fallback = _atm_iv_fallback(bridge, t_clamped)
+            row[nan_mask] = fallback
+
+        lv_grid[k_idx] = row
+
+    return lv_grid
 
 
 
@@ -205,6 +261,17 @@ def price_range_accrual(
 
     rng = np.random.default_rng(rng_seed)
 
+    # Pre-compute local-vol grid on 2D (time, strike) for the step-start times
+    S_min_safe = max(S0 * 0.1, 1e-4)
+    S_max_safe = S0 * 10.0
+    grid_strikes_K = np.logspace(
+        np.log10(max(S_min_safe, 1e-8)),
+        np.log10(S_max_safe),
+        _N_GRID,
+    )
+    step_times = np.array([k * dt for k in range(n_steps)])  # 0, dt, 2dt, ...
+    lv_grid = _precompute_lv_grid(bridge, grid_strikes_K, step_times, S0)
+
     # Initialise paths
     S = np.full((n_paths,), S0, dtype=float)
 
@@ -214,9 +281,14 @@ def price_range_accrual(
     sqrt_dt = np.sqrt(dt)
 
     t = 0.0
-    for _ in range(n_steps):
-        # Local vol evaluated at the START of the step (time t, current spot S)
-        sigma = _safe_local_vol(bridge, S, t, S0)
+    for k_idx in range(n_steps):
+        # Local vol at the START of the step (time t, current spot S)
+        # Interpolate from the pre-computed lv_grid for this time slice
+        sigma = np.interp(
+            np.clip(S, S_min_safe, S_max_safe),
+            grid_strikes_K,
+            lv_grid[k_idx],
+        )
 
         # Generate random increments (antithetic if requested)
         if use_antithetic:
