@@ -157,6 +157,7 @@ class TestSharkFinMCFlat:
             f"|diff|/SE = {n_se:.2f}, BS P_no_touch = {bs.p_no_touch:.6f}, "
             f"wall = {elapsed:.1f}s"
         )
+        assert mc.pv_std is not None  # always true for method='mc', narrows type for pyright
         assert diff < 3.0 * mc.pv_std, (
             f"MC PV {mc.pv:.8f} differs from BS PV {bs.pv:.8f} by {diff:.8f} "
             f"({n_se:.1f} SE), expected < 3 SE"
@@ -211,6 +212,7 @@ class TestSharkFinSkewed:
             f"MC SE = {mc.pv_std:.8f}, |diff| = {diff:.8f}, "
             f"|diff|/SE = {n_se:.2f}, wall = {elapsed:.1f}s"
         )
+        assert mc.pv_std is not None  # always true for method='mc', narrows type for pyright
         assert diff > 3.0 * mc.pv_std, (
             f"Skewed BS PV {bs.pv:.8f} and MC PV {mc.pv:.8f} differ by only "
             f"{diff:.8f} ({n_se:.1f} SE), expected > 3 SE divergence"
