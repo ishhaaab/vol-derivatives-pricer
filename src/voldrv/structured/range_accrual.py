@@ -14,6 +14,7 @@ linear interpolation.  This avoids a full O(paths × steps) evaluation
 while maintaining accuracy.
 """
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,7 +34,7 @@ class RangeAccrualResult:
     """Result of a range-accrual Monte Carlo simulation.
 
     Attributes
-   ----------
+    ----------
     pv:
         Present value per unit notional.
     n_paths:
@@ -44,6 +45,10 @@ class RangeAccrualResult:
         Mean fraction of days where the spot was in-range (pre-discount).
     accrual_std:
         Standard deviation of the per-path accrual fraction.
+    pv_std:
+        Standard error of the mean PV (=
+        std(pv_per_path, ddof=1) / sqrt(n_paths)).
+        Use 1.96 * pv_std for a 95% confidence half-width.
     """
 
     pv: float
@@ -51,6 +56,7 @@ class RangeAccrualResult:
     n_steps: int
     accrual_mean: float
     accrual_std: float
+    pv_std: float
 
 
 # ATM fallback value
@@ -130,11 +136,12 @@ def price_range_accrual(
     n_paths: int = 10_000,
     n_steps_per_year: int = 252,
     rng_seed: int | None = None,
+    use_antithetic: bool = True,
 )-> RangeAccrualResult:
     """Price a range-accrual note via Monte Carlo under surface-implied local vol.
 
     Parameters
-   ---------
+    ----------
     bridge:
         Surface bridge wrapping a fitted surface.
     T:
@@ -154,14 +161,21 @@ def price_range_accrual(
         Number of time steps per year.  Default 252 (daily).
     rng_seed:
         Optional RNG seed for reproducibility.
+    use_antithetic:
+        When True (default), generate ``n_paths // 2`` random normals
+        and mirror them (Z and -Z) for the second half.  Total paths
+        simulated = ``n_paths``; only ``n_paths // 2`` draws are made.
+        This is a standard variance-reduction technique; on discontinuous
+        payoffs (indicator-range) the reduction is weaker than the
+        textbook 1/sqrt(2) but still positive.
 
     Returns
-   ------
+    -------
     RangeAccrualResult
         Present value per unit notional and simulation metadata.
 
     Notes
-   ----
+    -----
     The coupon is paid at maturity.  ``coupon_rate`` is the total payment
     when every observation day is in-range; the accrual fraction
     (in-range days / total days) scales this linearly.
@@ -171,7 +185,7 @@ def price_range_accrual(
     corridor.
 
     Boundary tests
-   -------------
+    --------------
     ``lower = 0, upper = +inf`` → full accrual every day,
       PV ≈ coupon_rate * exp(-r * T).
     ``lower`` extremely high above max path / ``upper`` extremely low
@@ -180,6 +194,11 @@ def price_range_accrual(
     S0 = bridge.spot
     r = bridge.risk_free
     q = bridge.div_yield
+
+    if use_antithetic and n_paths % 2 != 0:
+        raise ValueError(
+            f"n_paths must be even when use_antithetic=True; got {n_paths}"
+        )
 
     dt = 1.0 / n_steps_per_year
     n_steps = max(int(round(T * n_steps_per_year)), 1)
@@ -199,8 +218,13 @@ def price_range_accrual(
         # Local vol evaluated at the START of the step (time t, current spot S)
         sigma = _safe_local_vol(bridge, S, t, S0)
 
-        # Generate random increments
-        Z = rng.standard_normal(n_paths)
+        # Generate random increments (antithetic if requested)
+        if use_antithetic:
+            half = n_paths // 2
+            Z_half = rng.standard_normal(half)
+            Z = np.concatenate([Z_half, -Z_half])
+        else:
+            Z = rng.standard_normal(n_paths)
 
         # Euler-Maruyama step
         drift= (r-q) * S * dt
@@ -223,6 +247,14 @@ def price_range_accrual(
     discount = np.exp(-r * T)
     pv_per_path = coupon_rate * accrual_fraction * discount
     pv = float(np.mean(pv_per_path))
+    # Standard error: for antithetic, average each pair first so the
+    # pairing structure is reflected in the SE estimate.
+    if use_antithetic:
+        half = n_paths // 2
+        pair_means = (pv_per_path[:half] + pv_per_path[half:]) * 0.5
+        pv_std = float(np.std(pair_means, ddof=1) / math.sqrt(half))
+    else:
+        pv_std = float(np.std(pv_per_path, ddof=1) / math.sqrt(n_paths))
 
     return RangeAccrualResult(
         pv=pv,
@@ -230,4 +262,5 @@ def price_range_accrual(
         n_steps=n_steps,
         accrual_mean=accrual_mean,
         accrual_std=accrual_std,
+        pv_std=pv_std,
     )
