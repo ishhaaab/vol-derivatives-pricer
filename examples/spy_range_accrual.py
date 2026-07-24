@@ -15,7 +15,7 @@ from voldrv.structured.range_accrual import price_range_accrual
 
 def main() -> None:
     symbol = "SPY"
-    bridge, meta = load_calibrated_surface(symbol, max_expiries=12)
+    bridge, meta = load_calibrated_surface(symbol, max_expiries=24)
     S0 = meta["spot"]
     T = 1.0  # 1-year note
     lower = S0 * 0.90   # 90%-of-spot corridor floor

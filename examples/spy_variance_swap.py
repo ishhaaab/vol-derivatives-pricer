@@ -14,7 +14,7 @@ from voldrv.swaps.vol_swap import fair_vol_strike_from_surface
 
 def main() -> None:
     symbol = "SPY"
-    bridge, meta = load_calibrated_surface(symbol, max_expiries=12)
+    bridge, meta = load_calibrated_surface(symbol, max_expiries=24)
     print(f"\n{symbol} calibration summary")
     print(f"  spot        = {meta['spot']:.2f}")
     print(f"  risk-free r = {meta['risk_free']:.4f}")
@@ -25,9 +25,13 @@ def main() -> None:
     print(f"  fitted expiries (yrs): {meta['fitted_expiries']}")
     print(f"  avg RMSE     = {meta['avg_rmse']:.4e}")
 
-    # pick up to 5 expiries within the fitted range, spaced out
-    exps = list(meta["fitted_expiries"])
-    Ts = sorted(set(exps))[:5]
+    # pick up to 5 expiries evenly spread across the fitted range (short + long)
+    exps = sorted(set(meta["fitted_expiries"]))
+    if len(exps) <= 5:
+        Ts = exps
+    else:
+        idx = [int(round(i * (len(exps) - 1) / 4)) for i in range(5)]  # 0%,25%,50%,75%,100%
+        Ts = [exps[i] for i in idx]
     rows = []
     for T in Ts:
         vs = fair_variance_strike(bridge, T=float(T))

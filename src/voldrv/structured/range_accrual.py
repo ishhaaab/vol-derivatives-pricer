@@ -9,13 +9,14 @@ SDE: dS = (r q) S dt + σ_loc(S, t) S dW   (Euler-Maruyama)
 Performance note
 ----------------
 The local-vol surface is pre-computed ONCE on a 2D (K, T) grid of
-``_N_GRID`` strikes × ``n_steps`` time slices at the start of the
+``_N_GRID`` strikes x ``n_steps`` time slices at the start of the
 simulation, then per-step local vols are obtained via ``np.interp``.
-This eliminates O(steps × _N_GRID) ``local_vol_at`` calls that were
+This eliminates O(steps x _N_GRID) ``local_vol_at`` calls that were
 previously made inside the loop.
 """
 
 import math
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -102,6 +103,16 @@ def _safe_local_vol(bridge: SurfaceBridge, S: np.ndarray, t: float,
     # Clamp t to the surface's minimum expiry so we don't
     # request a time slice before the earliest fitted slice.
     t = max(t, bridge.min_expiry)
+    if t > bridge.max_expiry:
+        warnings.warn(
+            f"_safe_local_vol: t={t:.4f} exceeds surface max_expiry="
+            f"{bridge.max_expiry:.4f}; clamping to max_expiry. "
+            f"Local vol beyond the calibrated surface is unreliable -- "
+            f"increase max_expiries in load_calibrated_surface() to cover the maturity.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        t = min(t, bridge.max_expiry)
 
     S_min_safe = max(S0 * 0.1, 1e-4)
     S_max_safe = S0 * 10.0
@@ -159,6 +170,16 @@ def _precompute_lv_grid(
 
     for k_idx, t in enumerate(times):
         t_clamped = max(t, bridge.min_expiry)
+        if t > bridge.max_expiry:
+            warnings.warn(
+                f"_precompute_lv_grid: t={t:.4f} exceeds surface max_expiry="
+                f"{bridge.max_expiry:.4f}; clamping to max_expiry. "
+                f"Local vol beyond the calibrated surface is unreliable -- "
+                f"increase max_expiries in load_calibrated_surface() to cover the maturity.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            t_clamped = min(t_clamped, bridge.max_expiry)
         # Evaluate local vol at each grid point for this time slice
         row = np.empty(n_strikes, dtype=float)
         for j, K in enumerate(grid_strikes_K):

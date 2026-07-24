@@ -371,3 +371,29 @@ class TestPrecomputedLVGrid:
         )
         assert isinstance(result.pv_std, float)
         assert result.pv_std >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Off-surface local-vol warning tests
+# ---------------------------------------------------------------------------
+class TestOffSurfaceWarning:
+    """When t exceeds bridge.max_expiry, a RuntimeWarning is emitted (no silent degradation)."""
+
+    def test_precompute_warns_when_t_exceeds_max_expiry(self) -> None:
+        """_precompute_lv_grid warns if a requested time slice is above max_expiry."""
+        import warnings
+
+        fs = _flat_fs(T_low=0.5, T_high=2.0)  # max_expiry = 2.0
+        bridge = SurfaceBridge(fs)
+        # Build a 2D grid that forces t > max_expiry:
+        grid_K = np.array([90.0, 100.0, 110.0])
+        times = np.array([1.0, 2.5, 3.0])      # 2.5 and 3.0 exceed max_expiry=2.0
+        from voldrv.structured.range_accrual import _precompute_lv_grid
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _precompute_lv_grid(bridge, grid_K, times, S0=100.0)
+            runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
+            # at least one warning per offending time step (2 of 3 times are off-surface)
+            assert len(runtime_warnings) >= 1
+            assert "exceeds surface max_expiry" in str(runtime_warnings[0].message)
