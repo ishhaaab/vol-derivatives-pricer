@@ -111,3 +111,58 @@ class TestFairVarianceStrike:
         assert result.expiry == approx(1.0)
         assert result.n_strikes >= 100
         assert result.pi_integral > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Grid convergence tests
+# ---------------------------------------------------------------------------
+class TestGridConvergence:
+    """Tests that the variance swap strike converges with grid resolution."""
+
+    def test_converges_with_n_points(self) -> None:
+        """Compute strike_var for increasing n_points; relative step below 5e-4 for n>=2000."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        ns = [500, 1000, 2000, 4000, 8000]
+        values: list[float] = []
+
+        for n in ns:
+            result = fair_variance_strike(bridge, T=1.0, n_points=n)
+            values.append(result.strike_var)
+
+        # Print convergence table (captured by pytest; visible with -s)
+        header = f"{'n_points':>8}  {'K_var²':>12}  {'rel step':>10}"
+        print(f"\n{header}")
+        print("-" * len(header))
+        for i, n in enumerate(ns):
+            rel_step = ""
+            if i > 0:
+                rel = abs(values[i] - values[i - 1]) / values[i]
+                rel_step = f"{rel:>10.2e}"
+            print(f"{n:>8}  {values[i]:>12.8f}  {rel_step}")
+        print()
+
+        # Check convergence criterion: relative change between successive
+        # grids below 5e-4 for n >= 2000
+        for i in range(2, len(ns)):  # start from i=2 (n=2000)
+            rel = abs(values[i] - values[i // 2]) / values[i]
+            assert rel < 5e-4, (
+                f"n_points {ns[i]}: relative step vs {ns[i//2]} is {rel:.2e}, "
+                f"expected < 5e-4"
+            )
+
+    def test_monotonic_no_oscillation(self) -> None:
+        """On a flat surface, all values across [500..8000] are within 0.1% of each other."""
+        fs = _flat_fs(sigma=0.2, S=100.0, r=0.05, q=0.0)
+        bridge = SurfaceBridge(fs)
+        ns = [500, 1000, 2000, 4000, 8000]
+        values: list[float] = []
+
+        for n in ns:
+            result = fair_variance_strike(bridge, T=1.0, n_points=n)
+            values.append(result.strike_var)
+
+        spread = max(values) - min(values)
+        assert spread < 0.001 * values[-1], (
+            f"Max-min spread {spread:.2e} exceeds 0.1% of final value {values[-1]:.6f}"
+        )
