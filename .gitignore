@@ -4,4 +4,5 @@ __pycache__/
 !.github/
 /plots
 AGENTS.md
+fix.md
 !examples/*.png
