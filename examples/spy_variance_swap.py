@@ -1,8 +1,16 @@
-"""End-to-end SPY variance + vol swap fair strikes off a live surface.
+"""End-to-end variance + vol swap fair strikes off a live surface.
 
-Usage:  python examples/spy_variance_swap.py
-Saves:  examples/spy_variance_swap.png
+Usage:  python examples/spy_variance_swap.py [--symbol TICKER]
+Saves:  examples/<TICKER>_variance_swap.png
 """
+import argparse
+import sys
+from pathlib import Path
+
+# pytest adds src/ to the path via pyproject, but a plain `python examples/foo.py`
+# run does not. Point at the src layout so `import voldrv` works either way.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 import matplotlib
 matplotlib.use("Agg")  # headless; safe even with no display
 import matplotlib.pyplot as plt
@@ -13,7 +21,16 @@ from voldrv.swaps.vol_swap import fair_vol_strike_from_surface
 
 
 def main() -> None:
-    symbol = "SPY"
+    parser = argparse.ArgumentParser(
+        description="Print variance + vol swap fair strikes off a live calibrated surface."
+    )
+    parser.add_argument(
+        "--symbol", default="SPY",
+        help="Ticker to fetch and price (default: SPY).",
+    )
+    args = parser.parse_args()
+    symbol = args.symbol
+
     bridge, meta = load_calibrated_surface(symbol, max_expiries=24)
     print(f"\n{symbol} calibration summary")
     print(f"  spot        = {meta['spot']:.2f}")
@@ -50,7 +67,7 @@ def main() -> None:
     ax.set_title(f"{symbol} variance swap fair strike from calibrated SVI surface")
     ax.legend(); ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    out = "examples/spy_variance_swap.png"
+    out = f"examples/{symbol}_variance_swap.png"
     fig.savefig(out, dpi=130)
     print(f"\nSaved {out}")
 

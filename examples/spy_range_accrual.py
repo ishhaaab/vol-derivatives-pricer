@@ -1,8 +1,16 @@
-"""End-to-end SPY range-accrual note pricing off a live surface.
+"""End-to-end range-accrual note pricing off a live surface.
 
-Usage:  python examples/spy_range_accrual.py
-Saves:  examples/spy_range_accrual.png
+Usage:  python examples/spy_range_accrual.py [--symbol TICKER]
+Saves:  examples/<TICKER>_range_accrual.png
 """
+import argparse
+import sys
+from pathlib import Path
+
+# pytest adds src/ to the path via pyproject, but a plain `python examples/foo.py`
+# run does not. Point at the src layout so `import voldrv` works either way.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -14,7 +22,16 @@ from voldrv.structured.range_accrual import price_range_accrual
 
 
 def main() -> None:
-    symbol = "SPY"
+    parser = argparse.ArgumentParser(
+        description="Price a range-accrual note off a live calibrated vol surface."
+    )
+    parser.add_argument(
+        "--symbol", default="SPY",
+        help="Ticker to fetch and price (default: SPY).",
+    )
+    args = parser.parse_args()
+    symbol = args.symbol
+
     bridge, meta = load_calibrated_surface(symbol, max_expiries=24)
     S0 = meta["spot"]
     T = 1.0  # 1-year note
@@ -53,7 +70,7 @@ def main() -> None:
     ax.set_title(f"{symbol} IV smile @ T={T_near:.2f}y with range-accrual corridor")
     ax.legend(); ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    out = "examples/spy_range_accrual.png"
+    out = f"examples/{symbol}_range_accrual.png"
     fig.savefig(out, dpi=130)
     print(f"\nSaved {out}")
 
