@@ -62,11 +62,13 @@ Shark fin flat surface cross check: BS PV 0.02793, MC PV 0.02783, difference 1.0
 Two end to end demos run on live SPY data. They need network access because they pull quotes through arbfree_vol's yfinance ingestion and calibrate an SVI surface before pricing:
 
 ```
-python examples/spy_variance_swap.py     # prints K_var^2, K_vol across expiries; saves a PNG
-python examples/spy_range_accrual.py     # prices a 1-year note; prints PV with 95% CI; saves a PNG
+python examples/spy_variance_swap.py                # SPY (default); prints K_var^2, K_vol across expiries
+python examples/spy_variance_swap.py --symbol QQQ   # any ticker with liquid option quotes
+python examples/spy_range_accrual.py               # SPY (default); prices a 1-year note with 95% CI
+python examples/spy_range_accrual.py --symbol QQQ  # same for another ticker
 ```
 
-Both use load_calibrated_surface("SPY", max_expiries=24), which is a one line wrapper over the upstream fetch, repair, and fit pipeline. Using 24 expiries means one year pricing stays on surface, since SPY monthlies run out past two years.
+Both accept `--symbol TICKER` to price a different underlying (the saved plot is named `examples/<TICKER>_*.png`). They use load_calibrated_surface("SPY", max_expiries=24) by default, which is a one line wrapper over the upstream fetch, repair, and fit pipeline. Using 24 expiries means one year pricing stays on surface, since SPY monthlies run out past two years.
 
 ![SPY variance swap fair strike](examples/spy_variance_swap.png)
 
